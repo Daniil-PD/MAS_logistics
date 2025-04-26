@@ -42,8 +42,16 @@ class CourierEntity(BaseEntity):
         self.cost = float(init_dict_data.get('Стоимость выхода на работу'))
         self.rate = float(init_dict_data.get('Цена работы за единицу времени'))
 
+        # Скорость зарядки
+        self.charge_velocity = float(init_dict_data.get('Скорость зарядки'))
+        # Скорость потребления аккумулятора в полёте
+        self.flight_velocity = float(init_dict_data.get('Скорость потребления аккумулятора в полёте'))
+        # Ёмкость аккумулятора
+        self.capacity = float(init_dict_data.get('Ёмкость аккумулятора'))
+        # Время инициализации
+        self.init_time = float(init_dict_data.get('Время инициализации'))
+
         self.velocity = float(init_dict_data.get('Скорость'))
-        self.max_volume = float(init_dict_data.get('Объем ранца'))
         self.max_mass = float(init_dict_data.get('Грузоподъемность'))
 
         self.uri = 'Courier' + str(self.number)

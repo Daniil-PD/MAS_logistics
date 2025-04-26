@@ -2,6 +2,7 @@
 import datetime
 import typing
 from dataclasses import dataclass
+import os
 
 import pandas as pd
 
@@ -18,7 +19,7 @@ class ScheduleItem:
     cost: float
 
 
-def save_schedule_to_excel(schedule, filename: str):
+def save_schedule_to_excel(schedule, filename: str, path_to_dir: str = "results"):
     """
     Сохраняет расписание в файл, добавляя к началу названия файла текущее время
     :param schedule:
@@ -28,7 +29,10 @@ def save_schedule_to_excel(schedule, filename: str):
     filename = datetime.datetime.now().strftime("%Y-%m-%d %H-%M-%S") + "_" + filename
 
     schedule_df = pd.DataFrame(schedule)
-    schedule_df.to_excel(filename)
+    # schedule_df.to_excel(filename)
+
+    path = os.path.join(path_to_dir, filename)
+    schedule_df.to_excel(path)
 
 
 def get_excel_data(filename, sheet_name) -> typing.List:
@@ -45,7 +49,7 @@ def get_excel_data(filename, sheet_name) -> typing.List:
 
 
 if __name__ == "__main__":
-    result = get_excel_data('../Исходные данные.xlsx', 'Курьеры')
+    result = get_excel_data('Исходные данные_конфликт copy.xlsx', 'Курьеры')
     for rec in result:
         print(rec)
     # test_schedule = [ScheduleItem(1, 2, 3, 4, 5), ScheduleItem(1, 3, 6, 7, 9)]

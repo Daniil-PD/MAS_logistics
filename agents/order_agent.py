@@ -21,6 +21,7 @@ class OrderAgent(AgentBase):
         self.subscribe(MessageType.REMOVE_ORDER, self.handle_remove_message)
         self.subscribe(MessageType.NEW_COURIER, self.handle_new_resource_message)
         self.subscribe(MessageType.DELETED_COURIER, self.handle_delete_courier_message)
+        self.subscribe(MessageType.TICK_MESSAGE, self.handle_tick_message)
 
         self.unchecked_couriers = []
         self.possible_variants = []
@@ -59,6 +60,16 @@ class OrderAgent(AgentBase):
             return
         # Заказ должен найти новое место - логика тут идентична удалению из расписания
         self.handle_remove_message(message, sender)
+
+    def handle_tick_message(self, message, sender):
+        """
+        Обработка сообщения c сообщением о активности
+        :param message:
+        :param sender:
+        :return:
+        """
+        # TODO: Просмотреть возможности для улучшения состояния и тд
+        pass
 
     def handle_new_resource_message(self, message, sender):
         """
@@ -111,10 +122,10 @@ class OrderAgent(AgentBase):
         all_couriers: typing.List[CourierEntity] = self.scene.get_entities_by_type('COURIER')
         logging.info(f'{self} - список ресурсов: {all_couriers}')
         for courier in all_couriers:
-            if self.entity.order_type not in courier.types:
-                logging.info(f'{self} - типы грузов {courier} - {courier.types} '
-                             f'не включают {self.entity.order_type}')
-                continue
+            # if self.entity.order_type not in courier.types:
+            #     logging.info(f'{self} - типы грузов {courier} - {courier.types} '
+            #                  f'не включают {self.entity.order_type}')
+            #     continue
             courier_address = self.dispatcher.reference_book.get_address(courier)
             logging.info(f'{self} - адрес {courier}: {courier_address}')
             request_message = Message(MessageType.PRICE_REQUEST, self.entity)

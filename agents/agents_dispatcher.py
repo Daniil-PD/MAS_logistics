@@ -77,3 +77,8 @@ class AgentsDispatcher:
     def get_agents_addresses(self) -> typing.List:
         result = list(self.reference_book.agents_entities.values())
         return result
+
+    def tik_agents(self):
+        # TODO: возможно нужно добавить "рандомность" в последовательность
+        for agent_address in self.reference_book.agents_entities.values():
+            self.actor_system.tell(agent_address, Message(MessageType.TICK_MESSAGE, None))

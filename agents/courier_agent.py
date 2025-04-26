@@ -21,6 +21,7 @@ class CourierAgent(AgentBase):
         self.name = 'Агент курьера'
         self.subscribe(MessageType.PRICE_REQUEST, self.handle_price_request)
         self.subscribe(MessageType.PLANNING_REQUEST, self.handle_planning_request)
+        self.subscribe(MessageType.TICK_MESSAGE, self.handle_tick_message)
 
     def handle_init_message(self, message, sender):
         super().handle_init_message(message, sender)
@@ -38,6 +39,16 @@ class CourierAgent(AgentBase):
             order_address = self.dispatcher.reference_book.get_address(order)
             deleted_courier_message = Message(MessageType.DELETED_COURIER, self.entity)
             self.send(order_address, deleted_courier_message)
+
+    def handle_tick_message(self, message, sender):
+        """
+        Обработка сообщения c сообщением о активности
+        :param message:
+        :param sender:
+        :return:
+        """
+        # TODO: Просмотреть возможности для улучшения состояния и тд
+        pass
 
     def handle_price_request(self, message, sender):
         """
@@ -59,8 +70,6 @@ class CourierAgent(AgentBase):
         :return:
         """
         if order.weight > self.entity.max_mass:
-            return []
-        if order.volume > self.entity.max_volume:
             return []
         p1 = order.point_from
         # Надо посчитать стоимость выполнения заказа, сроки доставки

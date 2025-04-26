@@ -12,6 +12,7 @@ class MessageType(Enum):
     REMOVE_ORDER = 'Удаление заказа из расписания'
     NEW_COURIER = 'Появление нового курьера'
     DELETED_COURIER = 'Удаление курьера'
+    TICK_MESSAGE = 'Тик'
 
 
 @dataclass

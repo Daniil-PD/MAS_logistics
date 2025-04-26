@@ -23,3 +23,4 @@ dist_*.zip
 /.pytest_cache/
 /tests/json_results/
 /pyinstaller_hooks/
+results/*
