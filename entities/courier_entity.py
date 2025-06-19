@@ -34,18 +34,21 @@ class CourierEntity(BaseEntity):
     def __init__(self, onto_desc: {}, init_dict_data, scene=None):
         super().__init__(onto_desc, scene)
         self.number = init_dict_data.get('Табельный номер')
-        self.name = init_dict_data.get('ФИО')
         x1 = float(init_dict_data.get('Координата начального положения x'))
         y1 = float(init_dict_data.get('Координата начального положения y'))
         self.init_point = Point(x1, y1)
-        self.types = [_type.lstrip() for _type in init_dict_data.get('Типы доставляемых заказов', '').split(';')]
         self.cost = float(init_dict_data.get('Стоимость выхода на работу'))
         self.rate = float(init_dict_data.get('Цена работы за единицу времени'))
+        self.name = init_dict_data.get('name')
 
         # Скорость зарядки
         self.charge_velocity = float(init_dict_data.get('Скорость зарядки'))
         # Скорость потребления аккумулятора в полёте
         self.flight_velocity = float(init_dict_data.get('Скорость потребления аккумулятора в полёте'))
+        # Коэффициент потребления аккумулятора с грузом А
+        self.load_velocity_A = float(init_dict_data.get('Коэффициент потребления аккумулятора с грузом А'))
+        # Коэффициент потребления аккумулятора с грузом B
+        self.load_velocity_B = float(init_dict_data.get('Коэффициент потребления аккумулятора с грузом B'))
         # Ёмкость аккумулятора
         self.capacity = float(init_dict_data.get('Ёмкость аккумулятора'))
         # Время инициализации

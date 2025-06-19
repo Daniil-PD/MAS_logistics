@@ -22,7 +22,7 @@ TYPES_AGENTS = {
 
 class AgentsDispatcher:
     def __init__(self, scene):
-        self.actor_system = ActorSystem()
+        self.actor_system = ActorSystem(logDefs=False)
         self.reference_book = ReferenceBook()
         self.scene = scene
 

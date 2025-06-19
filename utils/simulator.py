@@ -56,6 +56,7 @@ class Simulator:
         :param events: Список событий
         """
         for event in events:
+            logging.debug(f'Событие: {event.properties}')
             if event.event_type == ScriptEventType.NEW_COURIER:
                 logging.debug(f'Создание курьера: {event.properties}')
                 onto_description = {}

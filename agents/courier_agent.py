@@ -95,6 +95,8 @@ class CourierAgent(AgentBase):
         asap_variant = {'courier': self.entity, 'time_from': asap_time_from, 'time_to': asap_time_to,
                         'price': price, 'order': order, 'variant_name': 'asap'}
         params = [asap_variant]
+
+        
         jit_time_from = order.time_from - time_to_order
         jit_time_to = jit_time_from + time_to_order + time_with_order
         if asap_time_from < order.time_from:
