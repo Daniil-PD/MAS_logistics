@@ -10,15 +10,18 @@ class ScriptEventType(Enum):
 
 
 class ScriptEvent:
-    def __init__(self, time, event_type, properties):
+    def __init__(self, time, event_type: ScriptEventType, properties: dict):
         self.time = time
-        self.event_type = event_type
-        self.properties = properties
+        self.event_type: ScriptEventType = event_type
+        self.properties: dict = properties
+
+    def __str__(self):
+        return f'{self.event_type}: {self.properties}'
 
 
 class Script:
-    def __init__(self, events: list = []):
-        self.events = events
+    def __init__(self):
+        self.events = []
         self.events.sort(key=lambda event: event.time)
 
     def add_event(self, event: ScriptEvent, sort=True):
@@ -76,3 +79,6 @@ class Script:
             if start_time <= event.time < end_time:
                 result.append(event)
         return result
+    
+    def __str__(self):
+        return f"(Script, events_count: {len(self.events)})"

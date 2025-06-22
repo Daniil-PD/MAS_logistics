@@ -34,9 +34,6 @@ class Simulator:
     
         self.callback = callback
 
-    def add_agent(self, agent):
-        pass
-
 
     def run(self):
         """Запускает симуляцию
@@ -55,6 +52,7 @@ class Simulator:
         """Шаг симуляции
         :param events: Список событий
         """
+        events_count = len(events)
         for event in events:
             logging.debug(f'Событие: {event.properties}')
             if event.event_type == ScriptEventType.NEW_COURIER:
@@ -84,8 +82,10 @@ class Simulator:
         self._tick_agents()
         time.sleep(self.tick_size/100) # FIXME: Тут по идее должно быть ожидание устаканивания событий
 
-        if self.callback is not None:
-            self.callback(self.get_statistic())
+        if not self.callback is None:
+            statistic = self.get_statistic()
+            statistic["events_on_tick_count"] = events_count
+            self.callback(statistic)
 
         self.tick_counter += 1
         
@@ -104,7 +104,8 @@ class Simulator:
 
         return {"time": self.scene.time,
                 "tick_counter": self.tick_counter,
-                "tick_size": self.tick_size}
+                "tick_size": self.tick_size,
+                "entities_count": len(self.dispatcher.reference_book.agents_entities)}
     
     def get_all_schedule_records(self):
         all_schedule_records = []
