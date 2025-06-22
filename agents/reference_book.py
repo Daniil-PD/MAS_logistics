@@ -14,6 +14,8 @@ class ReferenceBook:
         :param agent_address:
         :return:
         """
+        if entity in self.agents_entities:
+            logging.error(f'Агент {entity} уже есть в адресной книге')
         self.agents_entities[entity] = agent_address
 
     def get_address(self, entity):

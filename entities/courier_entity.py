@@ -56,6 +56,7 @@ class CourierEntity(BaseEntity):
 
         self.velocity = float(init_dict_data.get('Скорость'))
         self.max_mass = float(init_dict_data.get('Грузоподъемность'))
+        
 
         self.uri = 'Courier' + str(self.number)
 
@@ -88,6 +89,15 @@ class CourierEntity(BaseEntity):
 
         return result
 
+    def is_order_displaceable(self, order: OrderEntity, current_time: float) -> bool:
+        """Проверяет, можно ли вытеснить или сдвинуть заказ (т.е. он еще не начался)."""
+        order_records = self.get_all_order_records(order)
+        if not order_records:
+            return True # Заказа нет в расписании, его не нужно вытеснять
+        
+        min_start_time = min(r.start_time for r in order_records)
+        return current_time < min_start_time
+    
     def get_all_order_records(self, order: OrderEntity) -> typing.List[ScheduleItem]:
         """
         Возвращает все записи указанного заказа

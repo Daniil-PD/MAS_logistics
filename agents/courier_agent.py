@@ -87,86 +87,212 @@ class CourierAgent(AgentBase):
                      f' к нему идти {distance_to_order}'
                      f'это займет {duration} и будет стоить {price}')
 
-        last_time = self.entity.get_last_time()
-
-        asap_time_from = last_time
-        asap_time_to = asap_time_from + time_to_order + time_with_order
-        # Вариант, при котором мы выполняем заказ как только можем
-        asap_variant = {'courier': self.entity, 'time_from': asap_time_from, 'time_to': asap_time_to,
-                        'price': price, 'order': order, 'variant_name': 'asap'}
-        params = [asap_variant]
-
+        all_variants = []
+        # ======================================================================
+        # Сценарий 1: Вставка в расписание (JIT и анализ конфликтов)
+        # ======================================================================
         
-        jit_time_from = order.time_from - time_to_order
-        jit_time_to = jit_time_from + time_to_order + time_with_order
-        if asap_time_from < order.time_from:
-            # Генерируем вариант, при котором мы заберем заказ вовремя
-            # JIT-вариант можно генерировать и при наличии записей, но надо расширить
-            # проверки на возможность доставки.
-            if jit_time_from > 0 and not self.entity.schedule:
-                jit_from_variant = {'courier': self.entity, 'time_from': jit_time_from, 'time_to': jit_time_to,
-                                    'price': price, 'order': order, 'variant_name': 'jit'}
-                params.append(jit_from_variant)
+        # Идеальное время начала движения, чтобы успеть к началу окна заказа
+        ideal_jit_start = order.time_from - time_to_order
+        
+        # ПРОВЕРКА 1: Нельзя планировать в прошлом (относительно времени симуляции)
+        if ideal_jit_start >= self.scene.time:
+            ideal_jit_end = ideal_jit_start + duration
+            
+            # Ищем конфликты именно в этом идеальном временном слоте
+            conflicted_records = self.entity.get_conflicts(ideal_jit_start, ideal_jit_end)
 
-        if jit_time_from > 0:
-            conflicted_records: typing.List[ScheduleItem] = self.entity.get_conflicts(jit_time_from, jit_time_to)
-            logging.info(f'{self} - {conflicted_records=}')
-            # Формируем перечень заказов, которые есть в конфликтных записях
-            conflicted_orders = set([rec.order for rec in conflicted_records])
+            if not conflicted_records:
+                # Отлично, мы нашли чистое "окно" в расписании для JIT-вставки!
+                jit_variant = {
+                    'courier': self.entity, 'time_from': ideal_jit_start, 'time_to': ideal_jit_end,
+                    'price': price, 'order': order, 'variant_name': 'jit'
+                }
+                all_variants.append(jit_variant)
+            else:
+                # Конфликт существует. Теперь запускаем анализ вытеснения и сдвига
+                # для этого конкретного временного интервала.
+                logging.info(f"{self}: Обнаружен конфликт для JIT-варианта заказа {order}. Запускаю анализ...")
+                
+                # Попытка ВЫТЕСНЕНИЯ (Displacement)
+                displace_variant = self._try_create_displacement_variant(order, ideal_jit_start, ideal_jit_end, price)
+                if displace_variant:
+                    all_variants.append(displace_variant)
 
-            all_conflicted_records: typing.List[ScheduleItem] = []
-            for _order in conflicted_orders:
-                all_conflicted_records.extend(self.entity.get_all_order_records(_order))
-            conflicted_tasks = defaultdict(dict)
-            for rec in all_conflicted_records:
-                task = rec.order
-                min_start = rec.start_time
-                max_end = rec.end_time
-                max_cost = rec.cost
-                if task in conflicted_tasks:
-                    min_start = min(conflicted_tasks[task].get('start'), min_start)
-                    max_end = max(conflicted_tasks[task].get('end'), max_end)
-                    max_cost = conflicted_tasks[task].get('cost', 0) + max_cost
+                # Попытка КАСКАДНОГО СДВИГА (Rescheduling)
+                reschedule_variant = self._try_create_reschedule_variant(order, ideal_jit_start, ideal_jit_end, price)
+                if reschedule_variant:
+                    all_variants.append(reschedule_variant)
+        else:
+            logging.info(f"{self}: Идеальный JIT-старт ({ideal_jit_start:.2f}) для заказа {order} находится в прошлом (тек. время {self.scene.time:.2f}).")
 
-                conflicted_tasks[task] = {'start': min_start, 'end': max_end, 'cost': max_cost}
-            logging.info(f'{self} ищет конфликтные варианты для заказа {order} {order.time_from=}, {order.time_to=} - '
-                         f'{jit_time_from=}, {jit_time_to=}, {conflicted_tasks=}')
-            # В коде ниже смотрим только на цену, но можно оценивать и другие параметры.
-            poss_removing_orders: typing.List[OrderEntity] = [_order for _order in conflicted_orders
-                                                              if _order.price < order.price]
 
-            if not poss_removing_orders:
-                logging.info(f'{self} не смог найти более дешевые заказы по сравнению с {order}')
-                return params
+        # ======================================================================
+        # Сценарий 2: Добавление в конец (ASAP)
+        # ======================================================================
 
-            # Для простоты оцениваем только один
-            cheapest_order = min(poss_removing_orders, key=lambda x: x.price)
-            logging.info(f'{self} нашел более дешевый заказ: {cheapest_order}')
+        # Время начала не может быть раньше, чем курьер закончит последнее дело,
+        # и не раньше текущего момента времени.
+        asap_start_time = max(self.entity.get_last_time(), self.scene.time)
+        asap_end_time = asap_start_time + duration
+        
+        # Для этого варианта не должно быть конфликтов, т.к. мы добавляем в конец
+        asap_variant = {
+            'courier': self.entity, 'time_from': asap_start_time, 'time_to': asap_end_time,
+            'price': price, 'order': order, 'variant_name': 'asap'
+        }
+        all_variants.append(asap_variant)
 
-            cheapest_order_records: typing.List[ScheduleItem] = self.entity.get_all_order_records(cheapest_order)
-            # Ожидаем, что первая запись - это движение за грузом.
-            start_record = cheapest_order_records[0]
-            start_time = start_record.start_time
-            start_point = start_record.point_from
-            conflicted_distance_to_order = start_point.get_distance_to_other(p1)
-            conflicted_time_to_order = conflicted_distance_to_order / self.entity.velocity
-            conflicted_finish = start_time + conflicted_time_to_order + time_with_order
+        return all_variants
 
-            logging.info(f'{self} в случае вытеснения отправится из точки {start_point} в {start_time}, '
-                         f'за заказом придет в {start_time + conflicted_time_to_order} '
-                         f'и доставит в {conflicted_finish}')
+    
+    def _try_create_displacement_variant(self, new_order, start_time, end_time, new_price):
+        """Пытается создать вариант с вытеснением одного из существующих заказов."""
+        conflicted_records = self.entity.get_conflicts(start_time, end_time)
+        if not conflicted_records:
+            return None
 
-            new_conflicts = self.entity.get_conflicts(start_time, conflicted_finish)
-            other_order_conflicts = [_rec for _rec in new_conflicts if _rec.order != cheapest_order]
-            if other_order_conflicts:
-                logging.info(f'{self} не сможет доставить заказ, есть конфликты {other_order_conflicts}')
-                return params
-            conflicted_price = (conflicted_time_to_order + time_with_order) * self.entity.rate
-            conflict_variant = {'courier': self.entity, 'time_from': start_time, 'time_to': conflicted_finish,
-                                'price': conflicted_price, 'order': order, 'variant_name': 'conflict'}
-            params.append(conflict_variant)
+        displaceable_orders = []
+        conflicted_orders = set(rec.order for rec in conflicted_records)
+        for _order in conflicted_orders:
+            if self.entity.is_order_displaceable(_order, self.scene.time):
+                displaceable_orders.append(_order)
+        
+        # Ищем заказы, которые дешевле нового и могут быть вытеснены
+        poss_removing_orders = [_o for _o in displaceable_orders if _o.price < new_order.price]
+        if not poss_removing_orders:
+            return None
 
-        return params
+        # Выбираем самый дешевый для вытеснения
+        order_to_displace = min(poss_removing_orders, key=lambda x: x.price)
+        logging.info(f"{self} нашел вариант вытеснить заказ {order_to_displace} для {new_order}")
+
+        # Для простоты, мы предполагаем, что размещение на месте вытесненного заказа возможно
+        # и не создаст новых конфликтов. В реальной системе это потребовало бы доп. проверок.
+        return {
+            'courier': self.entity, 'time_from': start_time, 'time_to': end_time,
+            'price': new_price, 'order': new_order, 'variant_name': 'conflict',
+            'order_to_displace': order_to_displace
+        }
+
+    def _try_create_reschedule_variant(self, new_order, start_time, end_time, new_price):
+        """
+        Пытается создать вариант с каскадным сдвигом существующих заказов.
+        Возвращает `reschedule_variant` или `None`.
+        """
+        shift_chain = []
+        is_shift_possible = True
+        last_available_time = end_time  # Время, когда новый заказ будет завершен
+
+        # Начинаем проверку каскада
+        temp_schedule = sorted(self.entity.schedule, key=lambda r: r.start_time)
+
+        while True:
+            # Ищем первый заказ, который теперь конфликтует с нашим `last_available_time`
+            conflicting_order = None
+            for rec in temp_schedule:
+                if rec.start_time < last_available_time:
+                    # Убедимся, что мы еще не обработали этот заказ в цепочке
+                    if rec.order not in [item['order'] for item in shift_chain]:
+                        conflicting_order = rec.order
+                        break
+            
+            if conflicting_order is None:
+                # Больше конфликтов нет, цепочка успешно построена
+                break
+
+            # Проверяем, можно ли вообще трогать этот заказ
+            if not self.entity.is_order_displaceable(conflicting_order, self.scene.time):
+                logging.info(f"{self}: Цепочка сдвига прервана. Заказ {conflicting_order} уже выполняется.")
+                is_shift_possible = False
+                break
+            
+            # Рассчитываем длительность сдвигаемого заказа
+            order_records = self.entity.get_all_order_records(conflicting_order)
+            duration = max(r.end_time for r in order_records) - min(r.start_time for r in order_records)
+            
+            # Предлагаемое новое время
+            new_start_for_shifted = last_available_time
+            new_end_for_shifted = new_start_for_shifted + duration
+
+            # Проверяем дедлайн
+            if new_end_for_shifted > conflicting_order.time_to:
+                logging.info(f"{self}: Цепочка сдвига прервана. Заказ {conflicting_order} не уложится в дедлайн.")
+                is_shift_possible = False
+                break
+            
+            # Все проверки для этого шага пройдены. Добавляем в цепочку и обновляем время.
+            shift_chain.append({
+                'order': conflicting_order,
+                'new_start': new_start_for_shifted,
+                'new_end': new_end_for_shifted
+            })
+            last_available_time = new_end_for_shifted
+
+        if is_shift_possible and shift_chain:
+            logging.info(f"{self} УСПЕШНО построил цепочку сдвига из {len(shift_chain)} заказов для {new_order}.")
+            return {
+                'courier': self.entity, 'time_from': start_time, 'time_to': end_time,
+                'price': new_price, 'order': new_order, 'variant_name': 'reschedule',
+                'shift_chain': shift_chain
+            }
+        
+        return None
+
+
+    def add_order(self, params: dict) -> bool:
+        """
+        Добавление заказа с параметрами в расписание ресурса.
+        Переписано для атомарной обработки сложных вариантов.
+        """
+        variant_name = params.get('variant_name')
+        
+        # Сохраняем копию расписания для отката в случае неудачи
+        backup_schedule = copy.deepcopy(self.entity.schedule)
+        
+        try:
+            if variant_name == 'conflict':
+                order_to_displace = params['order_to_displace']
+                logging.info(f"{self} пытается вытеснить {order_to_displace} для нового заказа.")
+                # Удаляем все записи вытесняемого заказа
+                self.entity.remove_order_from_schedule(order_to_displace)
+                # Добавляем новый заказ
+                if not self.entity.add_order_to_schedule(params.get('order'), params.get('time_from'), params.get('time_to'), params.get('price'), params):
+                    raise ValueError("Не удалось добавить новый заказ после вытеснения.")
+                
+                # Сообщаем вытесненному заказу, что ему нужно искать нового исполнителя
+                remove_message = Message(MessageType.REMOVE_ORDER, self.entity)
+                removed_order_address = self.dispatcher.reference_book.get_address(order_to_displace)
+                self.send(removed_order_address, remove_message)
+                return True
+
+            elif variant_name == 'reschedule':
+                shift_chain = params.get('shift_chain', [])
+                logging.info(f"{self} пытается выполнить сдвиг {len(shift_chain)} заказов.")
+                
+                # 1. Удаляем все заказы, которые будут сдвинуты
+                for item in shift_chain:
+                    self.entity.remove_order_from_schedule(item['order'])
+                
+                # 2. Добавляем новый заказ
+                if not self.entity.add_order_to_schedule(params.get('order'), params.get('time_from'), params.get('time_to'), params.get('price'), params):
+                    raise ValueError("Не удалось добавить новый заказ при сдвиге.")
+                
+                # 3. Добавляем сдвинутые заказы на новые места
+                for item in shift_chain:
+                    # Стоимость для сдвинутого заказа не меняется, находим ее из бэкапа
+                    original_cost = sum(r.cost for r in backup_schedule if r.order == item['order'])
+                    if not self.entity.add_order_to_schedule(item['order'], item['new_start'], item['new_end'], original_cost, {}):
+                        raise ValueError(f"Не удалось добавить сдвинутый заказ {item['order']} на новое место.")
+                return True
+
+            else: # Обычный вариант 'asap' или 'jit'
+                return self.entity.add_order_to_schedule(params.get('order'), params.get('time_from'), params.get('time_to'), params.get('price'), params)
+
+        except Exception as e:
+            logging.error(f"{self} ОШИБКА при планировании варианта '{variant_name}': {e}. Восстанавливаю расписание.")
+            self.entity.schedule = backup_schedule
+            return False
 
     def handle_planning_request(self, message, sender):
         """

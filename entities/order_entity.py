@@ -25,6 +25,7 @@ class OrderEntity(BaseEntity):
         self.time_from = float(init_dict_data.get('Время получения заказа'))
         self.time_to = float(init_dict_data.get('Время доставки заказа'))
         self.order_type = init_dict_data.get('Тип заказа')
+        self.appearance_time = float(init_dict_data.get('Время появления', 0))
 
         self.uri = 'Order' + str(self.number)
 

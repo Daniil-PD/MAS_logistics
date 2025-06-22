@@ -127,7 +127,7 @@ class OrderAgent(AgentBase):
             #                  f'не включают {self.entity.order_type}')
             #     continue
             courier_address = self.dispatcher.reference_book.get_address(courier)
-            logging.info(f'{self} - адрес {courier}: {courier_address}')
+            # logging.info(f'{self} - адрес {courier}: {courier_address}')
             request_message = Message(MessageType.PRICE_REQUEST, self.entity)
             self.send(courier_address, request_message)
             self.unchecked_couriers.append(courier_address)
