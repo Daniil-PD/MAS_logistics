@@ -74,6 +74,10 @@ class AgentBase(ABC, Actor):
         self.name = self.name + ' ' + self.entity.name
         logging.info(f'{self} проинициализирован')
 
+    def send(self, targetAddr, msg):
+        self.scene.count_messages += 1
+        return super().send(targetAddr, msg)
+
     @staticmethod
     def get_decreasing_kpi_value(value: float, min_value: float, max_value: float):
         """

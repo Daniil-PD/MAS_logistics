@@ -133,7 +133,7 @@ class OrderAgent(AgentBase):
             self.unchecked_couriers.append(courier_address)
 
     def handle_price_response(self, message, sender):
-        logging.info(f'{self} - получил сообщение {message}')
+        # logging.info(f'{self} - получил сообщение {message}')
         courier_variants = message.msg_body
 
         self.possible_variants.extend(courier_variants)

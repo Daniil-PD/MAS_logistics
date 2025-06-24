@@ -2,12 +2,23 @@ import random
 import math
 from typing import List, Dict, Any, Tuple
 
+
+def rand_or_const(val):
+    """
+    Генерирует случайное число или возвращает константу.
+    """
+    if isinstance(val, tuple):
+        return round(random.uniform(val[0], val[1]), 2)
+    return val
+
 def generate_orders(
     num_orders: int,
     urgent_percentage: float = 20.0,
     map_size: Tuple[int, int] = (100, 100),
     max_appearance_time: int = 50,
-    avg_courier_speed: float = 10.0
+    avg_courier_speed: float = 10.0,
+    payload_range: Tuple[float, float] = (10.0, 20.0),
+
 ) -> List[Dict[str, Any]]:
     """
     Генерирует список словарей с параметрами заказов.
@@ -54,7 +65,7 @@ def generate_orders(
         order_dict = {
             'Номер': i + 1,
             'Наименование': f'Заказ-{i + 1}{" (Срочный)" if is_urgent else ""}',
-            'Масса': round(random.uniform(1.0, 15.0), 2),
+            'Масса': rand_or_const(payload_range),
             'Объем': round(random.uniform(0.1, 2.0), 2),
             'Стоимость': round(random.uniform(100, 2000), 2),
             'Координата получения x': x_from,
@@ -63,9 +74,10 @@ def generate_orders(
             'Координата доставки y': y_to,
             'Время получения заказа': round(pickup_time, 2),
             'Время доставки заказа': round(delivery_deadline, 2),
-            'Тип заказа': random.choice(['A', 'B']),
+            # 'Тип заказа': random.choice(['A', 'B']),
+            'Срочный заказ': is_urgent,
             'Время появления': round(appearance_time, 2),
-            'Время исчезновения': None # Можно задать, если нужно
+            'Время исчезновения': None
         }
         orders.append(order_dict)
 
@@ -77,7 +89,10 @@ def generate_couriers(
     num_couriers: int,
     map_size: Tuple[int, int] = (100, 100),
     velocity_range: Tuple[float, float] = (8.0, 15.0),
-    payload_range: Tuple[float, float] = (10.0, 20.0)
+    payload_range: Tuple[float, float] = (10.0, 20.0),
+    battery_load_velocity_A: float = 0.1,
+    battery_load_velocity_B: float = 0.1,
+    battery_capacity = 300,
 ) -> List[Dict[str, Any]]:
     """
     Генерирует список словарей с параметрами курьеров.
@@ -102,14 +117,15 @@ def generate_couriers(
             'Цена работы за единицу времени': round(random.uniform(10, 30), 2),
             'Скорость зарядки': round(random.uniform(1, 5), 2),
             'Скорость потребления аккумулятора в полёте': round(random.uniform(0.5, 2), 2),
-            'Коэффициент потребления аккумулятора с грузом А': 1.2,
-            'Коэффициент потребления аккумулятора с грузом B': 1.5,
-            'Ёмкость аккумулятора': round(random.uniform(100, 200), 2),
+            'Коэффициент потребления аккумулятора А': rand_or_const(battery_load_velocity_A),
+            'Коэффициент потребления аккумулятора B': rand_or_const(battery_load_velocity_B),
+            'Ёмкость аккумулятора': rand_or_const(battery_capacity),
             'Время инициализации': 0.5,
             'Скорость': round(random.uniform(velocity_range[0], velocity_range[1]), 2),
-            'Грузоподъемность': round(random.uniform(payload_range[0], payload_range[1]), 2),
+            'Грузоподъемность': rand_or_const(payload_range),
             'Время появления': 0.0, # Все курьеры доступны с начала
-            'Время исчезновения': None # Работают всю симуляцию
+            'Время исчезновения': None, # Работают всю симуляцию
+            'Минимальный уровень заряда': 10
         }
         couriers.append(courier_dict)
     return couriers
@@ -118,15 +134,12 @@ def generate_couriers(
 if __name__ == "__main__":
     from pprint import pprint
 
-    # Генерируем 10 заказов, из которых 30% будут срочными
     generated_orders = generate_orders(num_orders=10, urgent_percentage=30)
     print("--- Сгенерированные Заказы ---")
-    # Выведем первые 3 для примера
     pprint(generated_orders[:3])
 
     print("\n" + "="*40 + "\n")
 
-    # Генерируем 4 курьеров
     generated_couriers = generate_couriers(num_couriers=4)
     print("--- Сгенерированные Курьеры ---")
     pprint(generated_couriers[:2])

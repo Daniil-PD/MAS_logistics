@@ -27,7 +27,8 @@ def experiment(parameters: dict) -> dict:
                                   urgent_percentage=parameters['urgent_percentage'],
                                   map_size=parameters["map_size"],
                                   max_appearance_time=parameters["max_appearance_time"],
-                                  avg_courier_speed=parameters["avg_courier_speed"])
+                                  avg_courier_speed=parameters["avg_courier_speed"],
+                                  payload_range=parameters["payload_range"])
     courier_dicts = generate_couriers(num_couriers=parameters['num_couriers'],
                                       map_size=parameters["map_size"],
                                       velocity_range=parameters["velocity_range"],
@@ -41,7 +42,7 @@ def experiment(parameters: dict) -> dict:
     simulator = Simulator(script, 
                           tick_size=parameters["tick_size"], 
                           time_stop=parameters["time_stop"], 
-                        #   callback=cb.callback_print
+                          callback=cb.callback_print
                           )
     
     # Запуск симуляции
@@ -55,8 +56,8 @@ def experiment(parameters: dict) -> dict:
     metrics = calculator.calculate_all_metrics()
     del calculator
     # Сохранение результатов
-    # all_schedule_records = simulator.get_all_schedule_records()
-    # save_schedule_to_excel(all_schedule_records, "res.xlsx")
+    all_schedule_records = simulator.get_all_schedule_records()
+    save_schedule_to_excel(all_schedule_records, "res.xlsx")
 
     metrics["experiment_time"] = time.time() - start_time
     # print(f"Время выполнения симуляции: {metrics['experiment_time']}")
@@ -85,30 +86,20 @@ def parameters_generator(parameters_ranges: dict):
 
 
 if __name__ == "__main__":
-    parameters_ranges = {
-        "tick_size": [1],
-        "time_stop": [240],
-        "num_orders": [*range(5, 40, 5)],
-        "urgent_percentage": [0, 5, 10, 15],
-        "num_couriers": [*range(20, 55, 5)],
-        "map_size": [(100, 100)],
-        "max_appearance_time": [220],
-        "avg_courier_speed": [4],
-        "velocity_range": [(2.0, 4.0)],
-        "payload_range": [(10.0, 20.0)],
-        
+    parameters = {
+        "tick_size": 1,
+        "time_stop": 240,
+        "num_orders": 30,
+        "urgent_percentage": 10,
+        "num_couriers": 2,
+        "map_size": (100, 100),
+        "max_appearance_time": 220,
+        "avg_courier_speed": 4,
+        "velocity_range": (2.0, 4.0),
+        "payload_range": 4,
     }
 
-    experiment_count = 1
-    for parameters in parameters_ranges:
-        experiment_count *= len(parameters_ranges[parameters])
-
-    experiment_series_name = time.strftime("%d-%m-%Y_%H-%M-%S", time.localtime()) + "_" + str(experiment_count)
-
-    print(f"Количество экспериментов: {experiment_count}, время запуска: {experiment_series_name}")
-
-
-    logging.basicConfig(level=logging.WARNING, 
+    logging.basicConfig(level=logging.DEBUG, 
                         format="%(asctime)s %(levelname)s %(message)s", 
                         filename="log.txt", 
                         filemode="w", 
@@ -117,19 +108,8 @@ if __name__ == "__main__":
                         )
    
 
-    experiments_results = []
-    for i, parameters in enumerate(tqdm(parameters_generator(parameters_ranges), total=experiment_count)):
-        res = experiment(parameters)
-        experiments_results.append({
-            **res,
-            **parameters
-        })
-        # print(res)
-
-        if i % 10 == 0:
-            df = pd.DataFrame(experiments_results)
-            df.to_excel(f"./experiments_results/{experiment_series_name}.xlsx")
-    df = pd.DataFrame(experiments_results)
-    df.to_excel(f"./experiments_results/{experiment_series_name}.xlsx")
+    res = experiment(parameters)
+    
+    print(res)
 
     

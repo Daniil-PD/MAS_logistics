@@ -13,9 +13,10 @@ class MetricsCalculator:
         self.all_couriers: list[CourierEntity] = self.scene.get_entities_by_type('COURIER')
         
         # Собираем все уникальные выполненные заказы из расписаний курьеров
-        self.completed_orders = {}
+        self.completed_orders: dict[str, OrderEntity] = {}
         for courier in self.all_couriers:
             for rec in courier.schedule:
+                if rec.order is None: continue
                 if rec.order.name not in self.completed_orders:
                     self.completed_orders[rec.order.name] = rec.order
 
@@ -29,21 +30,20 @@ class MetricsCalculator:
         on_time = self._calculate_on_time_performance()
         fairness = self._calculate_workload_fairness()
         avg_completion_time = self._calculate_average_completion_time()
+        avg_completion_time_urgent = self._calculate_average_completion_time(order_is_urgent=True)
+        avg_completion_time_not_urgent = self._calculate_average_completion_time(order_is_urgent=False)
         
-        if json:
-            return {
-                "Загруженность ресурсов (%)": utilization,
-                "Общий пробег": distance,
-                "Соблюдение временных окон (%)": on_time,
-                "Равномерность распределения нагрузки (StdDev of Earnings)": fairness,
-                "Среднее время выполнения заказа": avg_completion_time,
-            }
+        
         return {
-            "Загруженность ресурсов (%)": f"{utilization:.2f}",
-            "Общий пробег": f"{distance:.2f}",
-            "Соблюдение временных окон (%)": f"{on_time:.2f}",
-            "Равномерность распределения нагрузки (StdDev of Earnings)": f"{fairness:.2f}",
-            "Среднее время выполнения заказа": f"{avg_completion_time:.2f}",
+            "Загруженность ресурсов (%)": utilization,
+            "Общий пробег": distance,
+            "Соблюдение временных окон (%)": on_time,
+            "Равномерность распределения нагрузки (StdDev of Earnings)": fairness,
+            "Среднее время выполнения заказа": avg_completion_time,
+            "Количество сообщений": self.scene.count_messages,
+            "Количество выполненных заказов": len(self.completed_orders),
+            "Среднее время выполнения срочных заказов": avg_completion_time_urgent,
+            "Среднее время выполнения несрочных заказов": avg_completion_time_not_urgent
         }
 
     def _calculate_courier_utilization(self) -> float:
@@ -124,7 +124,7 @@ class MetricsCalculator:
             
         return np.std(earnings)
     
-    def _calculate_average_completion_time(self) -> float:
+    def _calculate_average_completion_time(self, order_is_urgent = None) -> float:
         """
         Расчет среднего времени выполнения заказа от его появления до фактической доставки.
         """
@@ -136,6 +136,9 @@ class MetricsCalculator:
 
         for order in self.completed_orders.values():
             appearance_time = order.appearance_time
+
+            if not order_is_urgent is None and order.is_urgent != order_is_urgent:
+                continue
             
             # Находим фактическое время доставки (логика аналогична on-time performance)
             actual_delivery_time = 0

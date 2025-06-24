@@ -143,9 +143,57 @@ class CourierAgent(AgentBase):
         }
         all_variants.append(asap_variant)
 
+
         return all_variants
 
-    
+    def _get_asap_variant(self, order: OrderEntity, duration: float):
+        asap_start_time = max(self.entity.get_last_time(consider_charge=True), self.scene.time)
+        asap_end_time = asap_start_time + duration
+
+        start_charge = self.entity.get_charge_at_time(asap_start_time)
+
+        last_point: Point = self.entity.get_last_point()
+        distance_to_order = last_point.get_distance_to_other(order.point_from)
+        distance_with_order = order.point_from.get_distance_to_other(order.point_to)
+        distance_to_base = last_point.get_distance_to_other(self.entity.init_point)
+
+        consumption_to_order = self.entity.get_consumption(distance_to_order)
+        consumption_with_order = self.entity.get_consumption(distance_with_order, order)
+        consumption_to_base = self.entity.get_consumption(distance_to_base)
+        consumption_total = consumption_to_order + consumption_with_order + consumption_to_base
+        price = duration * self.entity.rate
+        
+        if start_charge - consumption_total - self.entity.min_charge < 0:
+            # вариант не возможен в это время тк не будет достаточного заряда
+            time_to_charge =  (consumption_total + self.entity.min_charge)/ self.entity.charge_velocity
+
+            duration_to_init = last_point.get_distance_to_other(self.entity.init_point)/self.entity.velocity
+            duration_to_next = self.entity.init_point.get_distance_to_other(order.point_to)/self.entity.velocity
+
+
+            need_window = time_to_charge + duration_to_init + duration_to_next
+            price += (duration_to_init+duration_to_next) * self.entity.rate
+
+            asap_start_time = max(self.entity.get_last_time(consider_charge=False), self.scene.time)
+            asap_end_time = asap_start_time + duration
+
+            asap_start_time += need_window
+            asap_end_time += need_window
+
+        return {
+            'courier': self.entity, 'time_from': asap_start_time, 'time_to': asap_end_time,
+            'price': price, 'order': order, 'variant_name': 'asap', 
+            "changes": {
+                "add_to_shedule": {
+                    "order": order,
+                    "start_time": asap_start_time,
+                    "end_time": asap_end_time,
+                    "price": price
+                }
+            }
+        }
+
+
     def _try_create_displacement_variant(self, new_order, start_time, end_time, new_price):
         """Пытается создать вариант с вытеснением одного из существующих заказов."""
         conflicted_records = self.entity.get_conflicts(start_time, end_time)
