@@ -21,3 +21,6 @@ class Point:
         """
         order_distance = math.dist((self.x, self.y), (other_point.x, other_point.y))
         return order_distance
+    
+    def __eq__(self, other):
+        return math.isclose(self.x, other.x) and math.isclose(self.y, other.y)

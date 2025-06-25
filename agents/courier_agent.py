@@ -133,21 +133,34 @@ class CourierAgent(AgentBase):
 
         # Время начала не может быть раньше, чем курьер закончит последнее дело,
         # и не раньше текущего момента времени.
-        asap_start_time = max(self.entity.get_last_time(), self.scene.time)
-        asap_end_time = asap_start_time + duration
+        # asap_start_time = max(self.entity.get_last_time(), self.scene.time)
+        # asap_end_time = asap_start_time + duration
         
-        # Для этого варианта не должно быть конфликтов, т.к. мы добавляем в конец
-        asap_variant = {
-            'courier': self.entity, 'time_from': asap_start_time, 'time_to': asap_end_time,
-            'price': price, 'order': order, 'variant_name': 'asap'
-        }
-        all_variants.append(asap_variant)
+        # # Для этого варианта не должно быть конфликтов, т.к. мы добавляем в конец
+        # asap_variant = {
+        #     'courier': self.entity, 'time_from': asap_start_time, 'time_to': asap_end_time,
+        #     'price': price, 'order': order, 'variant_name': 'asap'
+        # }
+        asap_variants = self._get_asap_variant(order)
+        all_variants.extend(asap_variants)
 
 
         return all_variants
 
-    def _get_asap_variant(self, order: OrderEntity, duration: float):
-        asap_start_time = max(self.entity.get_last_time(consider_charge=True), self.scene.time)
+    def _get_asap_variant(self, order: OrderEntity) -> typing.List[ScheduleItem]:
+        """Возвращает вариант ASAP-выбора."""
+        p1 = order.point_from
+        # Надо посчитать стоимость выполнения заказа, сроки доставки
+        last_point: Point = self.entity.get_last_point()
+        distance_to_order = last_point.get_distance_to_other(p1)
+
+        p2 = order.point_to
+        distance_with_order = p1.get_distance_to_other(p2)
+        time_to_order = distance_to_order / self.entity.velocity
+        time_with_order = distance_with_order / self.entity.velocity
+        duration = time_to_order + time_with_order
+
+        asap_start_time = max(self.entity.get_last_time(consider_charge=False), self.scene.time)
         asap_end_time = asap_start_time + duration
 
         start_charge = self.entity.get_charge_at_time(asap_start_time)
@@ -155,17 +168,22 @@ class CourierAgent(AgentBase):
         last_point: Point = self.entity.get_last_point()
         distance_to_order = last_point.get_distance_to_other(order.point_from)
         distance_with_order = order.point_from.get_distance_to_other(order.point_to)
-        distance_to_base = last_point.get_distance_to_other(self.entity.init_point)
+        distance_to_base = order.point_to.get_distance_to_other(self.entity.init_point)
 
-        consumption_to_order = self.entity.get_consumption(distance_to_order)
-        consumption_with_order = self.entity.get_consumption(distance_with_order, order)
-        consumption_to_base = self.entity.get_consumption(distance_to_base)
+        consumption_to_order = self.entity.get_consumption_by_distance(distance_to_order)
+        consumption_with_order = self.entity.get_consumption_by_distance(distance_with_order, order)
+        consumption_to_base = self.entity.get_consumption_by_distance(distance_to_base)
         consumption_total = consumption_to_order + consumption_with_order + consumption_to_base
         price = duration * self.entity.rate
+
+        
+        if consumption_total >= self.entity.capacity - self.entity.min_charge:
+            # вариант не возможен в это время тк не будет достаточного заряда
+            return []
         
         if start_charge - consumption_total - self.entity.min_charge < 0:
             # вариант не возможен в это время тк не будет достаточного заряда
-            time_to_charge =  (consumption_total + self.entity.min_charge)/ self.entity.charge_velocity
+            time_to_charge =  (consumption_total + self.entity.min_charge - start_charge)/ self.entity.charge_velocity
 
             duration_to_init = last_point.get_distance_to_other(self.entity.init_point)/self.entity.velocity
             duration_to_next = self.entity.init_point.get_distance_to_other(order.point_to)/self.entity.velocity
@@ -180,7 +198,8 @@ class CourierAgent(AgentBase):
             asap_start_time += need_window
             asap_end_time += need_window
 
-        return {
+
+        return [{
             'courier': self.entity, 'time_from': asap_start_time, 'time_to': asap_end_time,
             'price': price, 'order': order, 'variant_name': 'asap', 
             "changes": {
@@ -191,7 +210,7 @@ class CourierAgent(AgentBase):
                     "price": price
                 }
             }
-        }
+        }]
 
 
     def _try_create_displacement_variant(self, new_order, start_time, end_time, new_price):
@@ -305,7 +324,12 @@ class CourierAgent(AgentBase):
                 # Удаляем все записи вытесняемого заказа
                 self.entity.remove_order_from_schedule(order_to_displace)
                 # Добавляем новый заказ
-                if not self.entity.add_order_to_schedule(params.get('order'), params.get('time_from'), params.get('time_to'), params.get('price'), params):
+                if not self.entity.add_order_to_schedule(params.get('order'), 
+                                                         params.get('time_from'), 
+                                                         params.get('time_to'), 
+                                                         params.get('price'), 
+                                                         params,
+                                                         creator="conflict"):
                     raise ValueError("Не удалось добавить новый заказ после вытеснения.")
                 
                 # Сообщаем вытесненному заказу, что ему нужно искать нового исполнителя
@@ -323,19 +347,34 @@ class CourierAgent(AgentBase):
                     self.entity.remove_order_from_schedule(item['order'])
                 
                 # 2. Добавляем новый заказ
-                if not self.entity.add_order_to_schedule(params.get('order'), params.get('time_from'), params.get('time_to'), params.get('price'), params):
+                if not self.entity.add_order_to_schedule(params.get('order'), 
+                                                         params.get('time_from'), 
+                                                         params.get('time_to'), 
+                                                         params.get('price'), 
+                                                         params,
+                                                         creator="reschedule"):
                     raise ValueError("Не удалось добавить новый заказ при сдвиге.")
                 
                 # 3. Добавляем сдвинутые заказы на новые места
                 for item in shift_chain:
                     # Стоимость для сдвинутого заказа не меняется, находим ее из бэкапа
                     original_cost = sum(r.cost for r in backup_schedule if r.order == item['order'])
-                    if not self.entity.add_order_to_schedule(item['order'], item['new_start'], item['new_end'], original_cost, {}):
+                    if not self.entity.add_order_to_schedule(item['order'], 
+                                                             item['new_start'], 
+                                                             item['new_end'], 
+                                                             original_cost, 
+                                                             {},
+                                                            creator="reschedule"):
                         raise ValueError(f"Не удалось добавить сдвинутый заказ {item['order']} на новое место.")
                 return True
 
-            else: # Обычный вариант 'asap' или 'jit'
-                return self.entity.add_order_to_schedule(params.get('order'), params.get('time_from'), params.get('time_to'), params.get('price'), params)
+            else: # Обычный вариант 'asap'
+                return self.entity.add_order_to_schedule(params.get('order'), 
+                                                         params.get('time_from'), 
+                                                         params.get('time_to'), 
+                                                         params.get('price'), 
+                                                         params,
+                                                         creator="asap")
 
         except Exception as e:
             logging.error(f"{self} ОШИБКА при планировании варианта '{variant_name}': {e}. Восстанавливаю расписание.")
@@ -359,49 +398,49 @@ class CourierAgent(AgentBase):
         result_msg = Message(MessageType.PLANNING_RESPONSE, params)
         self.send(sender, result_msg)
 
-    def add_order(self, params: dict) -> bool:
-        """
-        Добавление заказа с параметрами в расписание ресурса.
-        :param params:
-        :return:
-        """
-        variant_name = params.get('variant_name')
-        if variant_name == 'conflict':
-            conflicted_records: typing.List[ScheduleItem] = self.entity.get_conflicts(params.get('time_from'),
-                                                                                      params.get('time_to'))
-            logging.info(f'{self} - {conflicted_records=}')
-            # Формируем перечень заказов, которые есть в конфликтных записях
-            conflicted_orders = set([rec.order for rec in conflicted_records])
-            if len(conflicted_orders) > 1:
-                logging.info(f'{self} получил запрос на размещение {params}, '
-                             f'много конфликтов - {conflicted_orders}')
-                return False
+    # def add_order(self, params: dict) -> bool:
+    #     """
+    #     Добавление заказа с параметрами в расписание ресурса.
+    #     :param params:
+    #     :return:
+    #     """
+    #     variant_name = params.get('variant_name')
+    #     if variant_name == 'conflict':
+    #         conflicted_records: typing.List[ScheduleItem] = self.entity.get_conflicts(params.get('time_from'),
+    #                                                                                   params.get('time_to'))
+    #         logging.info(f'{self} - {conflicted_records=}')
+    #         # Формируем перечень заказов, которые есть в конфликтных записях
+    #         conflicted_orders = set([rec.order for rec in conflicted_records])
+    #         if len(conflicted_orders) > 1:
+    #             logging.info(f'{self} получил запрос на размещение {params}, '
+    #                          f'много конфликтов - {conflicted_orders}')
+    #             return False
 
-            # Делаем копию расписания. Если заказ разместить не удастся, то восстановим его.
-            old_schedule = copy.copy(self.entity.schedule)
-            for rec in conflicted_records:
-                self.entity.schedule.remove(rec)
-            adding_result = self.entity.add_order_to_schedule(params.get('order'),
-                                                              params.get('time_from'),
-                                                              params.get('time_to'),
-                                                              params.get('price'),
-                                                              params)
-            if not adding_result:
-                self.entity.schedule = old_schedule
-            else:
-                # Удаление заказа произошло успешно, надо сообщить удаленному заказу
-                # о необходимости перепланироваться
-                remove_message = Message(MessageType.REMOVE_ORDER, self.entity)
-                removed_order_address = self.dispatcher.reference_book.get_address(conflicted_orders.pop())
-                self.send(removed_order_address, remove_message)
-            return adding_result
+    #         # Делаем копию расписания. Если заказ разместить не удастся, то восстановим его.
+    #         old_schedule = copy.copy(self.entity.schedule)
+    #         for rec in conflicted_records:
+    #             self.entity.schedule.remove(rec)
+    #         adding_result = self.entity.add_order_to_schedule(params.get('order'),
+    #                                                           params.get('time_from'),
+    #                                                           params.get('time_to'),
+    #                                                           params.get('price'),
+    #                                                           params)
+    #         if not adding_result:
+    #             self.entity.schedule = old_schedule
+    #         else:
+    #             # Удаление заказа произошло успешно, надо сообщить удаленному заказу
+    #             # о необходимости перепланироваться
+    #             remove_message = Message(MessageType.REMOVE_ORDER, self.entity)
+    #             removed_order_address = self.dispatcher.reference_book.get_address(conflicted_orders.pop())
+    #             self.send(removed_order_address, remove_message)
+    #         return adding_result
 
-        adding_result = self.entity.add_order_to_schedule(params.get('order'),
-                                                          params.get('time_from'),
-                                                          params.get('time_to'),
-                                                          params.get('price'),
-                                                          params)
-        return adding_result
+    #     adding_result = self.entity.add_order_to_schedule(params.get('order'),
+    #                                                       params.get('time_from'),
+    #                                                       params.get('time_to'),
+    #                                                       params.get('price'),
+    #                                                       params)
+    #     return adding_result
 
     def handle_deleted(self, msg, sender):
         logging.info(f'{self} получил сообщение об удалении. ЧТО ДЕЛАТЬ???')

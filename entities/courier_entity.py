@@ -26,6 +26,7 @@ class ScheduleItem:
     point_to: Point
     cost: float
     all_params: dict = None
+    creator: str = None
     
     def __post_init__(self):
         if self.all_params is None:
@@ -99,7 +100,7 @@ class CourierEntity(BaseEntity):
     
 
 
-    def get_conflicts(self, start_time: int, end_time: int) -> typing.List[ScheduleItem]:
+    def get_conflicts(self, start_time: int, end_time: int, consider_charge: bool = False) -> typing.List[ScheduleItem]:
         """
         Возвращает записи, пересекающиеся по времени с запрошенным интервалом
         :param start_time:
@@ -111,7 +112,7 @@ class CourierEntity(BaseEntity):
             if start_time <= item.start_time < end_time or \
                     (start_time < item.end_time <= end_time and item.start_time != item.end_time) or \
                     item.start_time <= start_time < item.end_time or item.start_time < end_time <= item.end_time:
-                if item.rec_type != 'Ожидание':
+                if item.rec_type != 'Ожидание' and (consider_charge or not item.is_move_to_charge):
                     result.append(item)
 
         return result
@@ -136,23 +137,23 @@ class CourierEntity(BaseEntity):
     
     def get_consumption_by_distance(self, distance: float, order: OrderEntity = None) -> float:
         """Рассчитывает расход энергии на полет заданной дистанции."""
-        return get_consumption_by_distance(distance, order, self)
+        return get_consumption_by_distance(courier=self, distance=distance, order=order)
     
     def get_consumption_by_time(self, time: float, order: OrderEntity = None) -> float:
         """Рассчитывает расход энергии на полет заданной дистанции."""
         return get_consumption_by_time(courier=self, flight_time=time, order=order)
         
-    def get_charge_at_time(self, time: float) -> float:
+    def get_charge_at_time(self, time: float, raise_error: bool = False) -> float:
         """
         Рассчитывает предполагаемый уровень заряда на заданный момент времени,
         анализируя расписание до этого момента.
         """
-        return get_charge_at_time(time, self)
+        return get_charge_at_time(self.schedule, time, self, raise_error=raise_error)
 
         
 
     def add_order_to_schedule(self, order: OrderEntity,
-                              start_time: int, end_time: int, cost: float, all_params: dict) -> bool:
+                              start_time: int, end_time: int, cost: float, all_params: dict, creator: str = "add_order_to_schedule") -> bool:
         """
         Добавляет заказ с параметрами в расписание
         :param order:
@@ -182,10 +183,28 @@ class CourierEntity(BaseEntity):
             # Границы доставки вышли за запрошенное время
             return False
 
-        schedule_item_to_order = ScheduleItem(order, 'Движение за грузом', start_time, start_time + time_to_order,
-                                              last_point, order.point_from, 0, all_params)
-        schedule_item = ScheduleItem(order, 'Движение с грузом', start_time + time_to_order, common_finish_time,
-                                     order.point_from, order.point_to, cost, all_params)
+        schedule_item_to_order = ScheduleItem(
+            order=order,
+            rec_type='Движение за грузом',
+            start_time=start_time,
+            end_time=start_time + time_to_order,
+            point_from=last_point,
+            point_to=order.point_from,
+            cost=0,
+            all_params=all_params,
+            creator=creator
+        )
+        schedule_item = ScheduleItem(
+            order=order,
+            rec_type='Движение с грузом',
+            start_time=start_time + time_to_order,
+            end_time=common_finish_time,
+            point_from=order.point_from,
+            point_to=order.point_to,
+            cost=cost,
+            all_params=all_params,
+            creator=creator
+        )
         # waiting_item_with_order = ScheduleItem(order, 'Ожидание', common_finish_time, end_time,
         #                                        order.point_to, order.point_to,
         #                                        0, all_params)
@@ -197,19 +216,38 @@ class CourierEntity(BaseEntity):
             # if abs(waiting_item_with_order.start_time - waiting_item_with_order.end_time) > EPSILON:
             #     self.schedule.append(waiting_item_with_order)
             return True
-        conflicts = self.get_conflicts(start_time, end_time)
-        if self.get_conflicts(start_time, end_time):
+        conflicts = self.get_conflicts(start_time, end_time, consider_charge=True)
+
+        for conflict in conflicts: # удаляем зарядки
+            if conflict.is_move_to_charge:
+                self.schedule.remove(conflict)
+        if conflicts:
             logging.info(f'{self} - не могу добавить записи на интервал - {start_time} - {end_time},'
                          f' конфликты - {conflicts}')
             return False
+        
+        try:
+            test_shedule = copy.deepcopy(self.schedule)
+            if abs(schedule_item_to_order.start_time - schedule_item_to_order.end_time) > EPSILON:
+                test_shedule.append(schedule_item_to_order)
+            test_shedule.append(schedule_item)
+            test_shedule.sort(key=lambda rec: rec.start_time)
+            test_shedule, _ = auto_add_charge(test_shedule, self)
+            charge = get_charge_at_time(test_shedule, get_last_time(test_shedule), courier=self, raise_error=True)
+
+        except ValueError as e:
+            logging.warning(f'{self} - не могу добавить записи на интервал - {start_time} - {end_time},'
+                         f' Заряд слишком низкий')
+            return False
+
+
         if abs(schedule_item_to_order.start_time - schedule_item_to_order.end_time) > EPSILON:
             self.schedule.append(schedule_item_to_order)
         self.schedule.append(schedule_item)
         # if abs(waiting_item_with_order.start_time - waiting_item_with_order.end_time) > EPSILON:
         #     self.schedule.append(waiting_item_with_order)
-        self.schedule, _ = auto_add_charge(self.schedule, self)
-
         self.schedule.sort(key=lambda rec: rec.start_time)
+        self.schedule, _ = auto_add_charge(self.schedule, self)
         return True
 
     def get_last_point(self) -> Point:
@@ -233,13 +271,9 @@ class CourierEntity(BaseEntity):
         Возвращает время, когда курьер может приступить к выполнению заказа
         :return:
         """
-        if not self.schedule:
-            return 0
-        if self.schedule[-1].is_move_to_charge and not consider_charge:
-            return self.schedule[-2].end_time
-        return self.schedule[-1].end_time
+        return get_last_time(self.schedule, consider_charge=consider_charge)
 
-    def delete_order(self, order: OrderEntity):
+    def remove_order_from_schedule(self, order: OrderEntity):
         self.schedule, cost_change = delete_order(self.schedule, order, self)
         return cost_change
 
@@ -279,7 +313,8 @@ class CourierEntity(BaseEntity):
                     'start_time': rec.start_time,
                     'end_time': rec.end_time,
                     'cost': rec.cost,
-                    "is_move_to_charge": rec.is_move_to_charge
+                    "is_move_to_charge": rec.is_move_to_charge,
+                    "creator": rec.creator
                 }
             else:
                 json_record = {
@@ -292,9 +327,11 @@ class CourierEntity(BaseEntity):
                     'to': str(rec.point_to),
                     'start_time': rec.start_time,
                     'end_time': rec.end_time,
+                    'ideal_end_time': rec.order.time_to,
                     'cost': rec.cost,
                     "is_move_to_charge": rec.is_move_to_charge,
-                    "charge_on_end": self.get_charge_at_time(rec.end_time)
+                    "charge_on_end": self.get_charge_at_time(rec.end_time),
+                    "creator": rec.creator
                 }
             result.append(json_record)
         return result
@@ -313,42 +350,58 @@ def get_consumption_by_time(courier: CourierEntity, flight_time: float, order: O
         base_consumption = flight_time * discharge_on_time
         return base_consumption
 
-def get_charge_at_time(time: float, courier: CourierEntity):
+def get_charge_at_time(schedule: typing.List[ScheduleItem], time: float, courier: CourierEntity, raise_error: bool = False) -> float:
     charge = courier.capacity
     last_time = 0
     last_point = courier.init_point
-    for rec in courier.schedule:
-        if rec.start_time <= time < rec.end_time:
-            #TODO добавить учёта части зарядки
+    for rec in schedule:
+
+        part_of_recording = 1
+        if rec.start_time <= time < rec.end_time: # случай точки времени внутри записи
+            # учёт времени до записи
+            part_of_recording = (time - rec.start_time) / (rec.end_time - rec.start_time)
+
+        elif rec.start_time > time: # случай точки времени до записи
+            if last_point == courier.init_point:
+                charge += courier.charge_velocity*(time - last_time)
+                charge = min(charge, courier.capacity)
+            else:
+                charge -= get_consumption_by_time(courier=courier, flight_time=time - last_time)
             return charge
-        elif rec.start_time > time:
-            return charge
-        
+
+        # учёт времени до записи
         if last_point == courier.init_point:
             charge += courier.charge_velocity*(rec.start_time - last_time)
             charge = min(charge, courier.capacity)
         else:
             charge -= get_consumption_by_time(courier=courier, flight_time=rec.start_time - last_time)
         
+        charge_change_in_rec = 0
+        # учёт самой записи
         if rec.is_move_to_charge:
-            charge -= get_consumption_by_distance(courier=courier, 
+            charge_change_in_rec -= get_consumption_by_distance(courier=courier, 
                                       distance=rec.point_from.get_distance_to_other(rec.point_to))
         elif rec.rec_type == "Движение за грузом":
-            charge -= get_consumption_by_distance(courier=courier, 
+            charge_change_in_rec -= get_consumption_by_distance(courier=courier, 
                                       distance=rec.point_from.get_distance_to_other(rec.point_to))
         elif rec.rec_type == "Ожидание":
-            charge -= get_consumption_by_distance(courier=courier, 
+            charge_change_in_rec -= get_consumption_by_distance(courier=courier, 
                                       distance=rec.point_from.get_distance_to_other(rec.point_to))
         elif rec.rec_type == "Движение с грузом":
-            charge -= get_consumption_by_distance(courier=courier, 
+            charge_change_in_rec -= get_consumption_by_distance(courier=courier, 
                                       distance=rec.point_from.get_distance_to_other(rec.point_to),
                                       order=rec.order)
         else:
             raise ValueError(f"Тип события {rec.rec_type} не распознан")
         
-
+        charge += charge_change_in_rec * part_of_recording
+        
+        if charge < 0 and raise_error:
+            raise ValueError(f"Заряд курьера закончился в {time} секунде")
         charge = max(charge, 0)
         
+        if time < rec.end_time:
+            break
         
         last_point = rec.point_to
         last_time = rec.end_time
@@ -373,16 +426,20 @@ def auto_add_charge(schedule: typing.List[ScheduleItem], courier: CourierEntity)
     for i, rec in enumerate(schedule):
         if rec.is_move_to_charge:
             continue
-        if i + 1 >= len(schedule):
+        if i + 1 >= len(schedule): # для последнего события если он ещё не движение на зарядку
             point_from = rec.point_to
             duration = rec.point_to.get_distance_to_other(courier.init_point)/courier.velocity
-            schedule.insert(i + 1,ScheduleItem(None, 
-                                         "Следование на зарядку", 
-                                         rec.end_time, 
-                                         rec.end_time + duration, 
-                                         point_from, 
-                                         courier.init_point, 
-                                         courier.rate*duration, {}))
+            schedule.insert(i + 1,ScheduleItem(
+                                         order=None,
+                                         rec_type="Следование на зарядку", 
+                                         start_time=rec.end_time, 
+                                         end_time=rec.end_time + duration, 
+                                         point_from=point_from, 
+                                         point_to=courier.init_point, 
+                                         cost=courier.rate*duration,
+                                         all_params={},
+                                         creator="auto_add_charge"
+                                         ))
             cost_change += courier.rate*duration
             break
         
@@ -407,6 +464,7 @@ def auto_add_charge(schedule: typing.List[ScheduleItem], courier: CourierEntity)
                                          point_from=schedule[i].point_to, 
                                          point_to=courier.init_point, 
                                          cost=courier.rate*duration_to_init, 
+                                         creator="auto_add_charge",
                                          all_params={}))
             next_index += 1
             
@@ -417,6 +475,7 @@ def auto_add_charge(schedule: typing.List[ScheduleItem], courier: CourierEntity)
                                          point_from=courier.init_point, 
                                          point_to=schedule[next_index].point_to, 
                                          cost=courier.rate*duration_to_next, 
+                                         creator="auto_add_charge",
                                          all_params={}))
             next_index += 1
 
@@ -462,3 +521,14 @@ def delete_order(schedule: typing.List[ScheduleItem], order: OrderEntity, courie
 
 def get_all_records_by_order(schedule, order: OrderEntity):
     return [rec for rec in schedule if rec.order == order]
+
+def get_last_time(schedule: typing.List[ScheduleItem], consider_charge: bool = True) -> int:
+        """
+        Возвращает время, когда курьер может приступить к выполнению заказа
+        :return:
+        """
+        if not schedule:
+            return 0
+        if schedule[-1].is_move_to_charge and not consider_charge:
+            return schedule[-2].end_time
+        return schedule[-1].end_time

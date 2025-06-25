@@ -18,6 +18,7 @@ def generate_orders(
     max_appearance_time: int = 50,
     avg_courier_speed: float = 10.0,
     payload_range: Tuple[float, float] = (10.0, 20.0),
+    waite_response_timeout: float = 5.0
 
 ) -> List[Dict[str, Any]]:
     """
@@ -77,7 +78,8 @@ def generate_orders(
             # 'Тип заказа': random.choice(['A', 'B']),
             'Срочный заказ': is_urgent,
             'Время появления': round(appearance_time, 2),
-            'Время исчезновения': None
+            'Время исчезновения': None,
+            "Время ожидания ответа": round(waite_response_timeout, 2)
         }
         orders.append(order_dict)
 
@@ -92,6 +94,7 @@ def generate_couriers(
     payload_range: Tuple[float, float] = (10.0, 20.0),
     battery_load_velocity_A: float = 0.1,
     battery_load_velocity_B: float = 0.1,
+    battery_load_velocity_C: float = 0.1,
     battery_capacity = 300,
 ) -> List[Dict[str, Any]]:
     """
@@ -116,7 +119,7 @@ def generate_couriers(
             'Стоимость выхода на работу': round(random.uniform(100, 500), 2),
             'Цена работы за единицу времени': round(random.uniform(10, 30), 2),
             'Скорость зарядки': round(random.uniform(1, 5), 2),
-            'Скорость потребления аккумулятора в полёте': round(random.uniform(0.5, 2), 2),
+            'Скорость потребления аккумулятора в полёте': rand_or_const(battery_load_velocity_C),
             'Коэффициент потребления аккумулятора А': rand_or_const(battery_load_velocity_A),
             'Коэффициент потребления аккумулятора B': rand_or_const(battery_load_velocity_B),
             'Ёмкость аккумулятора': rand_or_const(battery_capacity),

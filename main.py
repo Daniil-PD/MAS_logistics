@@ -31,7 +31,11 @@ def experiment(parameters: dict) -> dict:
     courier_dicts = generate_couriers(num_couriers=parameters['num_couriers'],
                                       map_size=parameters["map_size"],
                                       velocity_range=parameters["velocity_range"],
-                                      payload_range=parameters["payload_range"])
+                                      payload_range=parameters["payload_range"],
+                                      battery_capacity=parameters["battery_capacity"],
+                                      battery_load_velocity_A=parameters["battery_load_velocity_A"],
+                                      battery_load_velocity_B=parameters["battery_load_velocity_B"]
+                                      )
 
     # Загрузка данных в сценарий
     script.load_orders_from_dicts(order_dicts)
@@ -85,19 +89,38 @@ def parameters_generator(parameters_ranges: dict):
 
 
 if __name__ == "__main__":
+    # parameters_ranges = {
+    #     "tick_size": [1],
+    #     "time_stop": [240],
+    #     "num_orders": [*range(10, 200, 10)],
+    #     "urgent_percentage": [*range(10, 100, 10)],
+    #     "num_couriers": [*range(20, 100, 10)],
+    #     "map_size": [(100, 100)],
+    #     "max_appearance_time": [220],
+    #     "avg_courier_speed": [4],
+    #     "velocity_range": [(2.0, 4.0)],
+    #     "payload_range": [(10.0, 20.0)],
+    #     "waite_response_timeout": [5],        
+    # }
+
     parameters_ranges = {
         "tick_size": [1],
         "time_stop": [240],
-        "num_orders": [*range(10, 300, 10)],
-        "urgent_percentage": [*range(10, 100, 10)],
-        "num_couriers": [*range(20, 205, 5)],
+        "num_orders": [*range(20, 200, 20)],
+        "urgent_percentage": [*range(0, 100, 20)],
+        "num_couriers": [*range(20, 50, 10)],
         "map_size": [(100, 100)],
         "max_appearance_time": [220],
         "avg_courier_speed": [4],
         "velocity_range": [(2.0, 4.0)],
         "payload_range": [(10.0, 20.0)],
-        
+        "waite_response_timeout": [5],
+        "battery_load_velocity_A": [0.1],
+        "battery_load_velocity_B": [0.01],
+        "battery_load_velocity_C": [0.3],
+        "battery_capacity": [300, 250, 200, 150, 100],
     }
+
 
     experiment_count = 1
     for parameters in parameters_ranges:
@@ -126,7 +149,7 @@ if __name__ == "__main__":
         })
         # print(res)
 
-        if i % 10 == 0:
+        if i % 10 == 9:
             df = pd.DataFrame(experiments_results)
             df.to_excel(f"./experiments_results/{experiment_series_name}.xlsx")
     df = pd.DataFrame(experiments_results)

@@ -22,6 +22,11 @@ class OrderAgent(AgentBase):
         self.subscribe(MessageType.NEW_COURIER, self.handle_new_resource_message)
         self.subscribe(MessageType.DELETED_COURIER, self.handle_delete_courier_message)
         self.subscribe(MessageType.TICK_MESSAGE, self.handle_tick_message)
+        self.last_send_request_time = 0
+
+        self.finish_weight = 0.3
+        self.start_weight = 0.2
+        self.price_weight = 0.5            
 
         self.unchecked_couriers = []
         self.possible_variants = []
@@ -68,8 +73,19 @@ class OrderAgent(AgentBase):
         :param sender:
         :return:
         """
+        if self.scene.time - self.last_send_request_time > self.entity.waite_response_timeout and self.unchecked_couriers:
+            self.unchecked_couriers = []
+            self.__run_planning()
+
+        elif not self.unchecked_couriers and self.entity.delivery_data['courier'] is None and self.possible_variants:
+            self.__run_planning()
+
+        elif not self.unchecked_couriers and self.entity.delivery_data['courier'] is None and self.possible_variants:
+            self.__send_params_request()
+
         # TODO: Просмотреть возможности для улучшения состояния и тд
-        pass
+
+
 
     def handle_new_resource_message(self, message, sender):
         """
@@ -116,10 +132,15 @@ class OrderAgent(AgentBase):
     def handle_init_message(self, message, sender):
         super().handle_init_message(message, sender)
         # Ищем в системе ресурсы и отправляем им запросы
+        if self.entity.is_urgent:
+            self.finish_weight = 0.7
+            self.start_weight = 0.2
+            self.price_weight = 0.1
         self.__send_params_request()
 
     def __send_params_request(self):
         all_couriers: typing.List[CourierEntity] = self.scene.get_entities_by_type('COURIER')
+        self.last_send_request_time = self.scene.time
         logging.info(f'{self} - список ресурсов: {all_couriers}')
         for courier in all_couriers:
             # if self.entity.order_type not in courier.types:
@@ -133,13 +154,13 @@ class OrderAgent(AgentBase):
             self.unchecked_couriers.append(courier_address)
 
     def handle_price_response(self, message, sender):
+        "Получение ответа на запрос цены"
         # logging.info(f'{self} - получил сообщение {message}')
         courier_variants = message.msg_body
 
         self.possible_variants.extend(courier_variants)
         self.unchecked_couriers.remove(sender)
-        if not self.unchecked_couriers:
-            self.__run_planning()
+        
 
     def __evaluate_variants(self):
         """
@@ -151,9 +172,10 @@ class OrderAgent(AgentBase):
         all_start_times = [var.get('time_from') for var in self.possible_variants]
         min_start_time = min(all_start_times)
         max_start_time = max(all_start_times)
-        all_finish_times = [var.get('time_to') for var in self.possible_variants]
-        min_finish_time = min(all_finish_times)
-        max_finish_time = max(all_finish_times)
+        all_delta_finish_times = [var.get('time_to')-self.entity.time_to for var in self.possible_variants]
+
+        min_finish_time = min(all_delta_finish_times)
+        max_finish_time = max(all_delta_finish_times)
         all_prices = [var.get('price') for var in self.possible_variants]
         min_price = min(all_prices)
         max_price = max(all_prices)
@@ -161,7 +183,7 @@ class OrderAgent(AgentBase):
                      f'минимальная цена - {min_price}')
         for variant in self.possible_variants:
             start_efficiency = self.get_decreasing_kpi_value(variant.get('time_from'), min_start_time, max_start_time)
-            finish_efficiency = self.get_increasing_kpi_value(variant.get('time_to'), min_finish_time, max_finish_time)
+            finish_efficiency = self.get_increasing_kpi_value(variant.get('time_to')-self.entity.time_to, min_finish_time, max_finish_time)
             price_efficiency = self.get_decreasing_kpi_value(variant.get('price'), min_price, max_price)
             variant['start_efficiency'] = start_efficiency  # [0; 1]
             variant['finish_efficiency'] = finish_efficiency  # [0; 1]
@@ -169,13 +191,12 @@ class OrderAgent(AgentBase):
 
             # Итоговая оценка варианта должна учитывать все критерии
             # (в какой-то пропорции)
-            finish_weight = 0.3
-            start_weight = 0.2
-            price_weight = 0.5
-            variant['total_efficiency'] = finish_weight * finish_efficiency + start_weight * start_efficiency +\
-                                          price_weight * price_efficiency
+            
+            variant['total_efficiency'] = self.finish_weight * finish_efficiency + self.start_weight * start_efficiency +\
+                                          self.price_weight * price_efficiency
 
     def __run_planning(self):
+        """Планирование заказа"""
         if not self.possible_variants:
             logging.info(f'{self} - нет возможных вариантов для планирования')
             return

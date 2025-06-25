@@ -28,7 +28,9 @@ class MetricsCalculator:
         utilization = self._calculate_courier_utilization()
         distance = self._calculate_total_distance()
         on_time = self._calculate_on_time_performance()
-        fairness = self._calculate_workload_fairness()
+        fairness_by_earnings = self._calculate_workload_fairness_by_earnings()
+        fairness_by_time = self._calculate_workload_fairness_by_time()
+        fairness_by_count_tasks = self._calculate_workload_fairness_by_count_tasks()
         avg_completion_time = self._calculate_average_completion_time()
         avg_completion_time_urgent = self._calculate_average_completion_time(order_is_urgent=True)
         avg_completion_time_not_urgent = self._calculate_average_completion_time(order_is_urgent=False)
@@ -38,7 +40,9 @@ class MetricsCalculator:
             "Загруженность ресурсов (%)": utilization,
             "Общий пробег": distance,
             "Соблюдение временных окон (%)": on_time,
-            "Равномерность распределения нагрузки (StdDev of Earnings)": fairness,
+            "Равномерность распределения нагрузки (StdDev of Earnings)": fairness_by_earnings,
+            "Равномерность распределения нагрузки (StdDev of Time)": fairness_by_time,
+            "Равномерность распределения нагрузки (StdDev of Count Tasks)": fairness_by_count_tasks,
             "Среднее время выполнения заказа": avg_completion_time,
             "Количество сообщений": self.scene.count_messages,
             "Количество выполненных заказов": len(self.completed_orders),
@@ -108,7 +112,7 @@ class MetricsCalculator:
                 
         return (on_time_count / len(self.completed_orders)) * 100 if self.completed_orders else 100.0
 
-    def _calculate_workload_fairness(self) -> float:
+    def _calculate_workload_fairness_by_earnings(self) -> float:
         """
         Расчет справедливости распределения нагрузки.
         Используем стандартное отклонение дохода каждого курьера.
@@ -122,7 +126,46 @@ class MetricsCalculator:
             courier_earnings = sum(record.cost for record in courier.schedule)
             earnings.append(courier_earnings)
             
-        return np.std(earnings)
+        return float(np.std(earnings))
+    
+    def _calculate_workload_fairness_by_time(self) -> float:
+        """
+        Расчет справедливости распределения нагрузки.
+        Используем стандартное отклонение времени работы каждого курьера.
+        Низкое значение означает, что курьеры работают примерно одинаково.
+        """
+        if len(self.all_couriers) < 2:
+            return 0.0 # Метрика не имеет смысла для одного курьера
+
+        working_times = []
+        for courier in self.all_couriers:
+            courier_working_time = 0
+            for record in courier.schedule:
+                if record.rec_type != 'Ожидание':
+                    courier_working_time += (record.end_time - record.start_time)
+            working_times.append(courier_working_time)
+            
+        return float(np.std(working_times))
+    
+    def _calculate_workload_fairness_by_count_tasks(self) -> float:
+        """
+        Расчет справедливости распределения нагрузки.
+        Используем стандартное отклонение количества заданий каждого курьера.
+        Низкое значение означает, что курьеры работают примерно одинаково.
+        """
+        if len(self.all_couriers) < 2:
+            return 0.0 # Метрика не имеет смысла для одного курьера
+
+        working_counts = []
+        for courier in self.all_couriers:
+            courier_working_count = 0
+            for record in courier.schedule:
+                if record.rec_type == 'Движение с грузом':
+                    courier_working_count += 1
+            working_counts.append(courier_working_count)
+            
+        return float(np.std(working_counts))
+
     
     def _calculate_average_completion_time(self, order_is_urgent = None) -> float:
         """

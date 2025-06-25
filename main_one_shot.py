@@ -91,7 +91,7 @@ if __name__ == "__main__":
         "time_stop": 240,
         "num_orders": 30,
         "urgent_percentage": 10,
-        "num_couriers": 2,
+        "num_couriers": 3,
         "map_size": (100, 100),
         "max_appearance_time": 220,
         "avg_courier_speed": 4,
