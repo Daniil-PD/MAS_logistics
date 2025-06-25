@@ -2,7 +2,7 @@ import glob
 
 with open("test.txt", 'w', encoding='utf-8') as f_out:
     for file in glob.glob("**/*.py", recursive=True):
-        if "__" in file or "site-packages" in file:
+        if "__" in file or "site-packages" in file or "venv" in file:
             continue
         print(file)
         f_out.write("######## Start file " + file + " ########\n")

@@ -24,3 +24,4 @@ dist_*.zip
 /tests/json_results/
 /pyinstaller_hooks/
 results/*
+experiments_results/*
