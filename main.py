@@ -88,9 +88,9 @@ if __name__ == "__main__":
     parameters_ranges = {
         "tick_size": [1],
         "time_stop": [240],
-        "num_orders": [*range(5, 40, 5)],
-        "urgent_percentage": [0, 5, 10, 15],
-        "num_couriers": [*range(20, 55, 5)],
+        "num_orders": [*range(10, 300, 10)],
+        "urgent_percentage": [*range(10, 100, 10)],
+        "num_couriers": [*range(20, 205, 5)],
         "map_size": [(100, 100)],
         "max_appearance_time": [220],
         "avg_courier_speed": [4],
